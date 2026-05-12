@@ -68,6 +68,8 @@ app/
 ├── auth/
 ├── data/
 │   ├── local/
+│       ├── dao/
+│       └── entity/
 │   ├── model/
 │   ├── mvi/
 │   ├── network/
@@ -75,7 +77,9 @@ app/
 ├── navigation/
 ├── notifications/
 ├── ui/
-│   └── screens/
+│   ├── screens/
+│   └── theme/
+├── util/
 └── MainActivity.kt
 ```
 
@@ -169,7 +173,6 @@ The repository does not include:
 
 ## Future Improvements
 
-- Calendar widget support
 - Wear OS integration
 - Shared calendars
 - Event attachments
@@ -177,6 +180,29 @@ The repository does not include:
 - Improved offline synchronization
 - Material You dynamic theming
 - Calendar import/export
+- Autoscroll to current date
+- Scroll to specific date
+- Remove account from list
+- Fix time zone
+- Edit notifications
+- Add share functionality (share content via Android share sheet)
+- Add swipe gestures (swipe to delete, update, etc.)
+- Change custom notification amount before event time and custom recurrence to scrollable from plus/minus, add validation to number of occurrences (change to scrollable) so it can’t go lower than one
+- When navigating to and from Notification edit screen, keep title and start and end dates and times
+- Make notifications navigate to navigation edit screen when Edit clicked (Edit doesn’t show up)
+- Location can link to Google Maps
+- Add widget / home screen integration
+- Add deep linking (open app from URL)
+- Ads and buy to remove ads/enable extra features
+- Google Play store
+- UI fixes
+- Fix mvi files (Action, Reducer, State) to align with mvi architecture
+- Fix “optional”, “start/endTime”, and “Summary/title” text
+- Move functions from screens to util
+- More tests and androidTests
+- Fix date/time populating
+- Set automatic length/end time
+- 80% coverage of tests
 
 ## License
 
