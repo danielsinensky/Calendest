@@ -1,6 +1,6 @@
 # Calendest
 
-Calendest is a Kotlin Android calendar application built with Jetpack Compose and the Google Calendar API. The app allows users to authenticate with Google, manage calendar events, configure recurring schedules and notifications according to alternate calendars and custom time to notification, and locally store application data using Room.
+Calendest is a Kotlin Android calendar application built with Jetpack Compose and the Google Calendar API. The app allows users to authenticate with Google, manage calendar events, configure recurring schedules and notifications according to alternate calendars and custom notification time to event, and locally store application data using Room.
 
 ## Features
 
