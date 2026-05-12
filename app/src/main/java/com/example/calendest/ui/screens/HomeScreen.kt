@@ -56,7 +56,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
-import com.example.calendest.notifications.EventNotificationScheduler
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -219,13 +218,6 @@ fun HomeScreen(
                         .pullRefresh(pullRefreshState)
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        Button(
-                            onClick = {
-                                EventNotificationScheduler.showTestNotification(context)
-                            }
-                        ) {
-                            Text("Test Notification")
-                        }
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { query ->
@@ -331,7 +323,10 @@ fun HomeScreen(
                                                             modifier = Modifier.clickable {
                                                                 focusManager.clearFocus()
                                                                 keyboardController?.hide()
-                                                                eventViewModel.deleteCalendarEvent(event.id)
+                                                                eventViewModel.deleteCalendarEvent(
+                                                                    eventId = event.id,
+                                                                    recurringEventId = event.recurringEventId
+                                                                )
                                                             }
                                                         )
                                                     }

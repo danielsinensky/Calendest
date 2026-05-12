@@ -297,7 +297,10 @@ class EventViewModel(
         }
     }
 
-    fun deleteCalendarEvent(eventId: String) {
+    fun deleteCalendarEvent(
+        eventId: String,
+        recurringEventId: String? = null
+    ) {
         val tokenToUse = state.value.accessToken
 
         if (tokenToUse.isEmpty()) {
@@ -311,7 +314,8 @@ class EventViewModel(
             try {
                 repo.deleteCalendarEvent(
                     accessToken = tokenToUse,
-                    eventId = eventId
+                    eventId = eventId,
+                    recurringEventId = recurringEventId
                 )
 
                 refreshHomeScreen(forceRefresh = true)
@@ -561,6 +565,63 @@ class EventViewModel(
         }
 
         editingNotificationIndex = null
+    }
+
+    data class EventEditDraft(
+        val eventId: String? = null,
+        val isEditing: Boolean = false,
+        val isAllDay: Boolean = false,
+        val summary: String = "",
+        val location: String = "",
+        val description: String = "",
+        val startDate: String = "",
+        val endDate: String = "",
+        val startTime: String = "",
+        val endTime: String = "",
+        val recurrenceChoice: String = "Does not repeat",
+        val applyToSeries: Boolean = false
+    )
+
+    var eventEditDraft by mutableStateOf<EventEditDraft?>(null)
+        private set
+
+    fun startEventDraftIfNeeded(
+        eventId: String?,
+        existingEvent: EventEntity?,
+        existingIsAllDay: Boolean,
+        startDate: String,
+        endDate: String,
+        startTime: String,
+        endTime: String,
+        recurrenceChoice: String
+    ) {
+        val existingDraft = eventEditDraft
+
+        if (existingDraft != null && existingDraft.eventId == eventId) {
+            return
+        }
+
+        eventEditDraft = EventEditDraft(
+            eventId = eventId,
+            isEditing = eventId != null,
+            isAllDay = existingIsAllDay,
+            summary = existingEvent?.summary ?: "",
+            location = existingEvent?.location ?: "",
+            description = "",
+            startDate = startDate,
+            endDate = endDate,
+            startTime = startTime,
+            endTime = endTime,
+            recurrenceChoice = recurrenceChoice
+        )
+    }
+
+    fun updateEventDraft(update: EventEditDraft.() -> EventEditDraft) {
+        eventEditDraft = eventEditDraft?.update()
+    }
+
+    fun clearEventDraft() {
+        eventEditDraft = null
     }
 }
 

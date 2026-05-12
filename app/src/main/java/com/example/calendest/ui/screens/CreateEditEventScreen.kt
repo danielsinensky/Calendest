@@ -61,43 +61,44 @@ fun CreateEditEventScreen(
     val timeZoneId = "America/New_York"
     val existingIsAllDay = existingEvent?.start?.contains("T") == false
 
-    var isAllDay by remember { mutableStateOf(existingIsAllDay) }
-    var summary by remember { mutableStateOf(existingEvent?.summary ?: "") }
-    var location by remember { mutableStateOf(existingEvent?.location ?: "") }
-    var description by remember { mutableStateOf("") }
+    val initialStartDate = datePartFromEvent(existingEvent?.start)
 
-    var startDate by remember { mutableStateOf(datePartFromEvent(existingEvent?.start)) }
-    var endDate by remember {
-        mutableStateOf(
-            if (existingIsAllDay) {
-                subtractOneDay(datePartFromEvent(existingEvent?.end))
-            } else {
-                datePartFromEvent(existingEvent?.end)
-            }
-        )
+    val initialEndDate = if (existingIsAllDay) {
+        subtractOneDay(datePartFromEvent(existingEvent?.end))
+    } else {
+        datePartFromEvent(existingEvent?.end)
     }
 
-    var startTime by remember { mutableStateOf(timePartFromEvent(existingEvent?.start)) }
-    var endTime by remember { mutableStateOf(timePartFromEvent(existingEvent?.end)) }
+    val initialStartTime = timePartFromEvent(existingEvent?.start)
+    val initialEndTime = timePartFromEvent(existingEvent?.end)
 
-    var recurrenceChoice by remember {
-        mutableStateOf(
-            if (eventViewModel.recurrenceChoice == "Does not repeat") {
-                recurrenceChoiceFromLabel(existingEvent?.recurrence)
-            } else {
-                eventViewModel.recurrenceChoice
-            }
-        )
-    }
+    val initialRecurrenceChoice =
+        if (eventViewModel.recurrenceChoice == "Does not repeat") {
+            recurrenceChoiceFromLabel(existingEvent?.recurrence)
+        } else {
+            eventViewModel.recurrenceChoice
+        }
 
-    var applyToSeries by remember { mutableStateOf(false) }
+    eventViewModel.startEventDraftIfNeeded(
+        eventId = eventId,
+        existingEvent = existingEvent,
+        existingIsAllDay = existingIsAllDay,
+        startDate = initialStartDate,
+        endDate = initialEndDate,
+        startTime = initialStartTime,
+        endTime = initialEndTime,
+        recurrenceChoice = initialRecurrenceChoice
+    )
+
+    val draft = eventViewModel.eventEditDraft ?: return
+
     var activeDatePicker by remember { mutableStateOf<String?>(null) }
     var startTimeExpanded by remember { mutableStateOf(false) }
     var endTimeExpanded by remember { mutableStateOf(false) }
     var notificationMenuExpanded by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val monthlyByWeekdayOption = monthlyByWeekdayLabel(startDate)
+    val monthlyByWeekdayOption = monthlyByWeekdayLabel(draft.startDate)
 
     val notificationOptions = presetNotificationOptions().filterNot { option ->
         option.override != null && eventViewModel.notifications.any {
@@ -107,12 +108,16 @@ fun CreateEditEventScreen(
 
     activeDatePicker?.let { picker ->
         CalendarDatePickerDialog(
-            initialDate = if (picker == "start") startDate else endDate,
+            initialDate = if (picker == "start") draft.startDate else draft.endDate,
             onDateSelected = { selectedDate ->
                 if (picker == "start") {
-                    startDate = selectedDate
+                    eventViewModel.updateEventDraft {
+                        copy(startDate = selectedDate)
+                    }
                 } else {
-                    endDate = selectedDate
+                    eventViewModel.updateEventDraft {
+                        copy(endDate = selectedDate)
+                    }
                 }
 
                 activeDatePicker = null
@@ -139,13 +144,14 @@ fun CreateEditEventScreen(
             Spacer(modifier = Modifier.width(16.dp))
 
             Switch(
-                checked = isAllDay,
+                checked = draft.isAllDay,
                 onCheckedChange = { checked ->
-                    isAllDay = checked
-
-                    if (checked) {
-                        startTime = ""
-                        endTime = ""
+                    eventViewModel.updateEventDraft {
+                        copy(
+                            isAllDay = checked,
+                            startTime = if (checked) "" else startTime,
+                            endTime = if (checked) "" else endTime
+                        )
                     }
                 }
             )
@@ -154,8 +160,12 @@ fun CreateEditEventScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
-            value = summary,
-            onValueChange = { summary = it },
+            value = draft.summary,
+            onValueChange = { value ->
+                eventViewModel.updateEventDraft {
+                    copy(summary = value)
+                }
+            },
             label = { Text("Summary / Title *") },
             singleLine = true
         )
@@ -163,8 +173,12 @@ fun CreateEditEventScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
-            value = location,
-            onValueChange = { location = it },
+            value = draft.location,
+            onValueChange = { value ->
+                eventViewModel.updateEventDraft {
+                    copy(location = value)
+                }
+            },
             label = { Text("Location optional") },
             singleLine = true
         )
@@ -172,8 +186,12 @@ fun CreateEditEventScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
-            value = description,
-            onValueChange = { description = it },
+            value = draft.description,
+            onValueChange = { value ->
+                eventViewModel.updateEventDraft {
+                    copy(description = value)
+                }
+            },
             label = { Text("Description optional") }
         )
 
@@ -182,15 +200,15 @@ fun CreateEditEventScreen(
         Text("Start")
 
         Text(
-            text = startDate.ifBlank { "Select start date *" },
+            text = draft.startDate.ifBlank { "Select start date *" },
             modifier = Modifier
                 .clickable { activeDatePicker = "start" }
                 .padding(8.dp)
         )
 
-        if (!isAllDay) {
+        if (!draft.isAllDay) {
             Text(
-                text = startTime.ifBlank { "Select start time *" },
+                text = draft.startTime.ifBlank { "Select start time *" },
                 modifier = Modifier
                     .clickable { startTimeExpanded = true }
                     .padding(8.dp)
@@ -204,7 +222,9 @@ fun CreateEditEventScreen(
                     DropdownMenuItem(
                         text = { Text(time) },
                         onClick = {
-                            startTime = time
+                            eventViewModel.updateEventDraft {
+                                copy(startTime = time)
+                            }
                             startTimeExpanded = false
                         }
                     )
@@ -217,15 +237,15 @@ fun CreateEditEventScreen(
         Text("End")
 
         Text(
-            text = endDate.ifBlank { "Select end date *" },
+            text = draft.endDate.ifBlank { "Select end date *" },
             modifier = Modifier
                 .clickable { activeDatePicker = "end" }
                 .padding(8.dp)
         )
 
-        if (!isAllDay) {
+        if (!draft.isAllDay) {
             Text(
-                text = endTime.ifBlank { "Select end time *" },
+                text = draft.endTime.ifBlank { "Select end time *" },
                 modifier = Modifier
                     .clickable { endTimeExpanded = true }
                     .padding(8.dp)
@@ -239,7 +259,9 @@ fun CreateEditEventScreen(
                     DropdownMenuItem(
                         text = { Text(time) },
                         onClick = {
-                            endTime = time
+                            eventViewModel.updateEventDraft {
+                                copy(endTime = time)
+                            }
                             endTimeExpanded = false
                         }
                     )
@@ -253,69 +275,83 @@ fun CreateEditEventScreen(
 
         RecurrenceOption(
             label = "Does not repeat",
-            selected = recurrenceChoice == "Does not repeat",
+            selected = draft.recurrenceChoice == "Does not repeat",
             onClick = {
-                recurrenceChoice = "Does not repeat"
+                eventViewModel.updateEventDraft {
+                    copy(recurrenceChoice = "Does not repeat")
+                }
                 eventViewModel.updateRecurrenceChoice("Does not repeat")
             }
         )
 
         RecurrenceOption(
             label = "Daily",
-            selected = recurrenceChoice == "Daily",
+            selected = draft.recurrenceChoice == "Daily",
             onClick = {
-                recurrenceChoice = "Daily"
+                eventViewModel.updateEventDraft {
+                    copy(recurrenceChoice = "Daily")
+                }
                 eventViewModel.updateRecurrenceChoice("Daily")
             }
         )
 
         RecurrenceOption(
             label = "Weekly",
-            selected = recurrenceChoice == "Weekly",
+            selected = draft.recurrenceChoice == "Weekly",
             onClick = {
-                recurrenceChoice = "Weekly"
+                eventViewModel.updateEventDraft {
+                    copy(recurrenceChoice = "Weekly")
+                }
                 eventViewModel.updateRecurrenceChoice("Weekly")
             }
         )
 
         RecurrenceOption(
             label = "Monthly",
-            selected = recurrenceChoice == "Monthly",
+            selected = draft.recurrenceChoice == "Monthly",
             onClick = {
-                recurrenceChoice = "Monthly"
+                eventViewModel.updateEventDraft {
+                    copy(recurrenceChoice = "Monthly")
+                }
                 eventViewModel.updateRecurrenceChoice("Monthly")
             }
         )
 
         RecurrenceOption(
             label = monthlyByWeekdayOption,
-            selected = recurrenceChoice == monthlyByWeekdayOption,
+            selected = draft.recurrenceChoice == monthlyByWeekdayOption,
             onClick = {
-                recurrenceChoice = monthlyByWeekdayOption
+                eventViewModel.updateEventDraft {
+                    copy(recurrenceChoice = monthlyByWeekdayOption)
+                }
                 eventViewModel.updateRecurrenceChoice(monthlyByWeekdayOption)
             }
         )
 
         RecurrenceOption(
             label = "Yearly",
-            selected = recurrenceChoice == "Yearly",
+            selected = draft.recurrenceChoice == "Yearly",
             onClick = {
-                recurrenceChoice = "Yearly"
+                eventViewModel.updateEventDraft {
+                    copy(recurrenceChoice = "Yearly")
+                }
                 eventViewModel.updateRecurrenceChoice("Yearly")
             }
         )
 
         RecurrenceOption(
             label = "Custom",
-            selected = recurrenceChoice == "Custom",
+            selected = draft.recurrenceChoice == "Custom",
             onClick = {
-                recurrenceChoice = "Custom"
+                eventViewModel.updateEventDraft {
+                    copy(recurrenceChoice = "Custom")
+                }
                 eventViewModel.updateRecurrenceChoice("Custom")
                 navController.navigate("recurrenceCustomEditScreen")
             }
         )
 
-        if (eventViewModel.recurrenceChoice == "Custom") {
+        if (draft.recurrenceChoice == "Custom") {
             Text(
                 text = "Custom recurrence: every ${eventViewModel.customRecurrenceInterval} " +
                         unitLabel(
@@ -422,16 +458,24 @@ fun CreateEditEventScreen(
             Text("Apply non-recurrence changes to")
 
             Text(
-                text = if (!applyToSeries) "• This event only" else "This event only",
+                text = if (!draft.applyToSeries) "• This event only" else "This event only",
                 modifier = Modifier
-                    .clickable { applyToSeries = false }
+                    .clickable {
+                        eventViewModel.updateEventDraft {
+                            copy(applyToSeries = false)
+                        }
+                    }
                     .padding(vertical = 4.dp)
             )
 
             Text(
-                text = if (applyToSeries) "• Entire recurring series" else "Entire recurring series",
+                text = if (draft.applyToSeries) "• Entire recurring series" else "Entire recurring series",
                 modifier = Modifier
-                    .clickable { applyToSeries = true }
+                    .clickable {
+                        eventViewModel.updateEventDraft {
+                            copy(applyToSeries = true)
+                        }
+                    }
                     .padding(vertical = 4.dp)
             )
 
@@ -450,59 +494,59 @@ fun CreateEditEventScreen(
 
         Button(
             onClick = {
-                if (summary.isBlank()) {
+                if (draft.summary.isBlank()) {
                     errorMessage = "Summary is required."
                     return@Button
                 }
 
-                if (startDate.isBlank() || endDate.isBlank()) {
+                if (draft.startDate.isBlank() || draft.endDate.isBlank()) {
                     errorMessage = "Start and end dates are required."
                     return@Button
                 }
 
-                if (!isAllDay && (startTime.isBlank() || endTime.isBlank())) {
+                if (!draft.isAllDay && (draft.startTime.isBlank() || draft.endTime.isBlank())) {
                     errorMessage = "Start and end times are required."
                     return@Button
                 }
 
-                if (isDateBefore(endDate, startDate)) {
+                if (isDateBefore(draft.endDate, draft.startDate)) {
                     errorMessage = "End date cannot come before start date."
                     return@Button
                 }
 
                 if (
-                    !isAllDay &&
-                    startDate == endDate &&
-                    isTimeBefore(endTime, startTime)
+                    !draft.isAllDay &&
+                    draft.startDate == draft.endDate &&
+                    isTimeBefore(draft.endTime, draft.startTime)
                 ) {
                     errorMessage = "End time cannot come before start time."
                     return@Button
                 }
 
-                val startDateTime = if (isAllDay) {
-                    startDate
+                val startDateTime = if (draft.isAllDay) {
+                    draft.startDate
                 } else {
                     buildGoogleDateTime(
-                        date = startDate,
-                        timeLabel = startTime,
+                        date = draft.startDate,
+                        timeLabel = draft.startTime,
                         timeZoneId = timeZoneId
                     )
                 }
 
-                val endDateTime = if (isAllDay) {
-                    addOneDay(endDate)
+                val endDateTime = if (draft.isAllDay) {
+                    addOneDay(draft.endDate)
                 } else {
                     buildGoogleDateTime(
-                        date = endDate,
-                        timeLabel = endTime,
+                        date = draft.endDate,
+                        timeLabel = draft.endTime,
                         timeZoneId = timeZoneId
                     )
                 }
 
                 val recurrence = buildRecurrence(
-                    choice = recurrenceChoice,
-                    startDate = startDate,
-                    startTime = if (isAllDay) "12:00 AM" else startTime,
+                    choice = draft.recurrenceChoice,
+                    startDate = draft.startDate,
+                    startTime = if (draft.isAllDay) "12:00 AM" else draft.startTime,
                     timeZoneId = timeZoneId,
                     customInterval = eventViewModel.customRecurrenceInterval,
                     customUnit = eventViewModel.customRecurrenceUnit,
@@ -519,12 +563,12 @@ fun CreateEditEventScreen(
 
                 if (isEditing && eventId != null) {
                     val recurrenceWasEdited =
-                        recurrenceChoice != recurrenceChoiceFromLabel(existingEvent?.recurrence)
+                        draft.recurrenceChoice != recurrenceChoiceFromLabel(existingEvent?.recurrence)
 
                     val shouldApplyToSeries = when {
                         recurrenceWasEdited -> true
                         recurrence != null -> true
-                        applyToSeries -> true
+                        draft.applyToSeries -> true
                         else -> false
                     }
 
@@ -532,15 +576,15 @@ fun CreateEditEventScreen(
                         eventId = eventId,
                         recurringEventId = existingEvent?.recurringEventId,
                         applyToSeries = shouldApplyToSeries,
-                        summary = summary,
-                        location = location.ifBlank { null },
-                        description = description.ifBlank { null },
+                        summary = draft.summary,
+                        location = draft.location.ifBlank { null },
+                        description = draft.description.ifBlank { null },
                         startDateTime = startDateTime,
                         endDateTime = endDateTime,
                         recurrence = recurrence,
                         reminders = reminders,
                         wasAllDay = existingIsAllDay,
-                        isAllDay = isAllDay
+                        isAllDay = draft.isAllDay
                     )
 
                     EventNotificationScheduler.cancelEventNotifications(
@@ -552,33 +596,35 @@ fun CreateEditEventScreen(
                     EventNotificationScheduler.scheduleEventNotifications(
                         context = context,
                         eventId = eventId,
-                        eventTitle = summary,
+                        eventTitle = draft.summary,
                         eventStart = startDateTime,
-                        isAllDay = isAllDay,
+                        isAllDay = draft.isAllDay,
                         reminders = reminders.overrides ?: emptyList()
                     )
                 } else {
                     eventViewModel.createCalendarEvent(
-                        summary = summary,
-                        location = location.ifBlank { null },
-                        description = description.ifBlank { null },
+                        summary = draft.summary,
+                        location = draft.location.ifBlank { null },
+                        description = draft.description.ifBlank { null },
                         startDateTime = startDateTime,
                         endDateTime = endDateTime,
                         recurrence = recurrence,
                         reminders = reminders,
-                        isAllDay = isAllDay,
+                        isAllDay = draft.isAllDay,
                         onCreated = { createdEventId ->
                             EventNotificationScheduler.scheduleEventNotifications(
                                 context = context,
                                 eventId = createdEventId,
-                                eventTitle = summary,
+                                eventTitle = draft.summary,
                                 eventStart = startDateTime,
-                                isAllDay = isAllDay,
+                                isAllDay = draft.isAllDay,
                                 reminders = reminders.overrides ?: emptyList()
                             )
                         }
                     )
                 }
+
+                eventViewModel.clearEventDraft()
 
                 navController.navigate("homeScreen") {
                     popUpTo("homeScreen") {
@@ -595,6 +641,8 @@ fun CreateEditEventScreen(
 
         Button(
             onClick = {
+                eventViewModel.clearEventDraft()
+
                 navController.navigate("homeScreen") {
                     popUpTo("homeScreen") {
                         inclusive = false

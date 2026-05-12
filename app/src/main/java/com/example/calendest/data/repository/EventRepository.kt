@@ -165,18 +165,25 @@ class EventRepository(
 
     suspend fun deleteCalendarEvent(
         accessToken: String,
-        eventId: String
+        eventId: String,
+        recurringEventId: String? = null
     ) {
+        val targetEventId = recurringEventId ?: eventId
+
         val response = service.deleteEvent(
-            eventId = eventId,
+            eventId = targetEventId,
             authToken = "Bearer $accessToken"
         )
 
-        if (!response.isSuccessful) {
+        if (!response.isSuccessful && response.code() != 404) {
             throw Exception("Failed to delete event: ${response.code()}")
         }
 
         eventDao.deleteEventById(eventId)
+
+        if (targetEventId != eventId) {
+            eventDao.deleteEventById(targetEventId)
+        }
     }
 
     suspend fun clearLocalCalendarData() {

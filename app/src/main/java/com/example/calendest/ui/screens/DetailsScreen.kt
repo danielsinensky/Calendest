@@ -159,7 +159,10 @@ fun DetailsScreen(
 
                 Button(
                     onClick = {
-                        eventViewModel.deleteCalendarEvent(event.id)
+                        eventViewModel.deleteCalendarEvent(
+                            eventId = event.id,
+                            recurringEventId = event.recurringEventId
+                        )
 
                         navController.navigate("homeScreen") {
                             popUpTo("homeScreen") {
