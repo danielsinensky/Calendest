@@ -43,6 +43,9 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import androidx.compose.material3.AlertDialog
+import com.example.calendest.DeleteEventMode
+import com.example.calendest.data.local.entity.EventEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,6 +100,7 @@ fun CreateEditEventScreen(
     var endTimeExpanded by remember { mutableStateOf(false) }
     var notificationMenuExpanded by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val monthlyByWeekdayOption = monthlyByWeekdayLabel(draft.startDate)
 
@@ -639,6 +643,34 @@ fun CreateEditEventScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        if (isEditing && existingEvent != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    if (eventHasRecurrence(existingEvent)) {
+                        showDeleteDialog = true
+                    } else {
+                        eventViewModel.deleteCalendarEvent(
+                            eventId = existingEvent.id,
+                            eventStart = existingEvent.start
+                        )
+
+                        eventViewModel.clearEventDraft()
+
+                        navController.navigate("homeScreen") {
+                            popUpTo("homeScreen") {
+                                inclusive = false
+                            }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+            ) {
+                Text("Delete Event")
+            }
+        }
+
         Button(
             onClick = {
                 eventViewModel.clearEventDraft()
@@ -652,6 +684,71 @@ fun CreateEditEventScreen(
             }
         ) {
             Text("Cancel")
+        }
+
+        if (showDeleteDialog && existingEvent != null) {
+            RecurringDeleteDialog(
+                onDeleteOnlyThis = {
+                    showDeleteDialog = false
+
+                    eventViewModel.deleteCalendarEvent(
+                        eventId = existingEvent.id,
+                        recurringEventId = existingEvent.recurringEventId,
+                        eventStart = existingEvent.start,
+                        deleteMode = DeleteEventMode.ONLY_THIS_EVENT
+                    )
+
+                    eventViewModel.clearEventDraft()
+
+                    navController.navigate("homeScreen") {
+                        popUpTo("homeScreen") {
+                            inclusive = false
+                        }
+                        launchSingleTop = true
+                    }
+                },
+                onDeleteThisAndFuture = {
+                    showDeleteDialog = false
+
+                    eventViewModel.deleteCalendarEvent(
+                        eventId = existingEvent.id,
+                        recurringEventId = existingEvent.recurringEventId,
+                        eventStart = existingEvent.start,
+                        deleteMode = DeleteEventMode.THIS_AND_FUTURE_EVENTS
+                    )
+
+                    eventViewModel.clearEventDraft()
+
+                    navController.navigate("homeScreen") {
+                        popUpTo("homeScreen") {
+                            inclusive = false
+                        }
+                        launchSingleTop = true
+                    }
+                },
+                onDeleteAll = {
+                    showDeleteDialog = false
+
+                    eventViewModel.deleteCalendarEvent(
+                        eventId = existingEvent.id,
+                        recurringEventId = existingEvent.recurringEventId,
+                        eventStart = existingEvent.start,
+                        deleteMode = DeleteEventMode.ALL_EVENTS
+                    )
+
+                    eventViewModel.clearEventDraft()
+
+                    navController.navigate("homeScreen") {
+                        popUpTo("homeScreen") {
+                            inclusive = false
+                        }
+                        launchSingleTop = true
+                    }
+                },
+                onDismiss = {
+                    showDeleteDialog = false
+                }
+            )
         }
     }
 }
@@ -722,6 +819,44 @@ private fun CalendarDatePickerDialog(
     ) {
         DatePicker(state = datePickerState)
     }
+}
+
+@Composable
+private fun RecurringDeleteDialog(
+    onDeleteOnlyThis: () -> Unit,
+    onDeleteThisAndFuture: () -> Unit,
+    onDeleteAll: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Delete recurring event")
+        },
+        text = {
+            Text("What do you want to delete?")
+        },
+        confirmButton = {
+            Column {
+                Button(onClick = onDeleteOnlyThis) {
+                    Text("Only this event")
+                }
+
+                Button(onClick = onDeleteThisAndFuture) {
+                    Text("This and future events")
+                }
+
+                Button(onClick = onDeleteAll) {
+                    Text("All occurrences")
+                }
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 private fun timeOptions(): List<String> {
@@ -1192,4 +1327,10 @@ private fun recurrenceChoiceFromLabel(value: String?): String {
         value.contains("FREQ=YEARLY") -> "Yearly"
         else -> "Does not repeat"
     }
+}
+
+private fun eventHasRecurrence(event: EventEntity): Boolean {
+    return !event.recurringEventId.isNullOrBlank() ||
+            event.recurrence?.contains("FREQ=") == true ||
+            event.recurrence == "Part of a recurring series"
 }

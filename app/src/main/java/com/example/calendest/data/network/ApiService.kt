@@ -16,6 +16,10 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.PUT
 
+data class EventRecurrencePatch(
+    val recurrence: List<String>
+)
+
 interface ApiService {
     @GET("calendar/v3/calendars/primary/events")
     suspend fun getEvents(
@@ -56,6 +60,13 @@ interface ApiService {
         @Path("eventId") eventId: String,
         @Header("Authorization") authToken: String,
         @Body event: EventWriteRequest
+    ): Event
+
+    @PATCH("calendar/v3/calendars/primary/events/{eventId}")
+    suspend fun updateEventRecurrence(
+        @Path("eventId") eventId: String,
+        @Header("Authorization") authToken: String,
+        @Body patch: EventRecurrencePatch
     ): Event
 }
 

@@ -24,6 +24,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
+enum class DeleteEventMode {
+    ONLY_THIS_EVENT,
+    THIS_AND_FUTURE_EVENTS,
+    ALL_EVENTS
+}
+
 class EventViewModel(
     private val repo: EventRepository,
     private val authClient: CalendarAuthClient
@@ -299,7 +305,9 @@ class EventViewModel(
 
     fun deleteCalendarEvent(
         eventId: String,
-        recurringEventId: String? = null
+        recurringEventId: String? = null,
+        eventStart: String? = null,
+        deleteMode: DeleteEventMode = DeleteEventMode.ONLY_THIS_EVENT
     ) {
         val tokenToUse = state.value.accessToken
 
@@ -315,7 +323,9 @@ class EventViewModel(
                 repo.deleteCalendarEvent(
                     accessToken = tokenToUse,
                     eventId = eventId,
-                    recurringEventId = recurringEventId
+                    recurringEventId = recurringEventId,
+                    eventStart = eventStart,
+                    deleteMode = deleteMode
                 )
 
                 refreshHomeScreen(forceRefresh = true)

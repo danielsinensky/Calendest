@@ -1,21 +1,30 @@
 package com.example.calendest.data.repository
 
+import com.example.calendest.DeleteEventMode
 import com.example.calendest.data.local.dao.EventDao
 import com.example.calendest.data.local.dao.SavedGoogleAccountDao
 import com.example.calendest.data.local.entity.EventEntity
 import com.example.calendest.data.local.entity.SavedGoogleAccountEntity
 import com.example.calendest.data.model.Event
 import com.example.calendest.data.model.EventDateTime
+import com.example.calendest.data.model.EventReminderOverride
 import com.example.calendest.data.model.EventReminders
 import com.example.calendest.data.model.EventWriteRequest
 import com.example.calendest.data.network.ApiService
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class EventRepository(
     private val service: ApiService,
     private val eventDao: EventDao,
     private val savedGoogleAccountDao: SavedGoogleAccountDao? = null
 ) {
-    suspend fun getEvents(accessToken: String, forceRefresh: Boolean = false): List<EventEntity> {
+
+    suspend fun getEvents(
+        accessToken: String,
+        forceRefresh: Boolean = false
+    ): List<EventEntity> {
         val local = eventDao.getEvents()
 
         if (local.isNotEmpty() && !forceRefresh) {
@@ -45,7 +54,10 @@ class EventRepository(
         return eventDao.getEventById(id)
     }
 
-    suspend fun fetchAndCacheEventDetail(id: String, accessToken: String): EventEntity? {
+    suspend fun fetchAndCacheEventDetail(
+        id: String,
+        accessToken: String
+    ): EventEntity? {
         val event = service.getEventById(id, "Bearer $accessToken")
         val entity = event.toEntity()
 
@@ -166,24 +178,88 @@ class EventRepository(
     suspend fun deleteCalendarEvent(
         accessToken: String,
         eventId: String,
-        recurringEventId: String? = null
+        recurringEventId: String? = null,
+        eventStart: String? = null,
+        deleteMode: DeleteEventMode = DeleteEventMode.ONLY_THIS_EVENT
     ) {
-        val targetEventId = recurringEventId ?: eventId
+        when (deleteMode) {
+            DeleteEventMode.ONLY_THIS_EVENT -> {
+                val response = service.deleteEvent(
+                    eventId = eventId,
+                    authToken = "Bearer $accessToken"
+                )
 
-        val response = service.deleteEvent(
-            eventId = targetEventId,
-            authToken = "Bearer $accessToken"
-        )
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to delete event: ${response.code()}")
+                }
+            }
 
-        if (!response.isSuccessful && response.code() != 404) {
-            throw Exception("Failed to delete event: ${response.code()}")
+            DeleteEventMode.ALL_EVENTS -> {
+                val targetId = recurringEventId ?: eventId
+
+                val response = service.deleteEvent(
+                    eventId = targetId,
+                    authToken = "Bearer $accessToken"
+                )
+
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to delete recurring series: ${response.code()}")
+                }
+            }
+
+            DeleteEventMode.THIS_AND_FUTURE_EVENTS -> {
+                val seriesId = recurringEventId
+                    ?: throw Exception("This event is not part of a recurring series.")
+
+                val start = eventStart
+                    ?: throw Exception("Missing event start time.")
+
+                val selectedStartMillis = parseEventStartMillis(start)
+
+                val series = service.getEventById(
+                    eventId = seriesId,
+                    authToken = "Bearer $accessToken"
+                )
+
+                val updatedRecurrence = series.recurrence
+                    ?.mapNotNull { rule ->
+                        when {
+                            rule.startsWith("RRULE:") -> {
+                                replaceRRuleEndWithUntil(
+                                    rule = rule,
+                                    until = untilBeforeStart(start)
+                                )
+                            }
+
+                            rule.startsWith("RDATE") -> {
+                                trimRDateRuleBeforeMillis(
+                                    rule = rule,
+                                    cutoffMillis = selectedStartMillis
+                                )
+                            }
+
+                            else -> rule
+                        }
+                    }
+                    ?: emptyList()
+
+                service.updateEvent(
+                    eventId = seriesId,
+                    authToken = "Bearer $accessToken",
+                    event = EventWriteRequest(
+                        summary = series.summary ?: "No title",
+                        location = series.location,
+                        description = series.description,
+                        start = series.start ?: EventDateTime(),
+                        end = series.end ?: EventDateTime(),
+                        recurrence = updatedRecurrence,
+                        reminders = series.reminders
+                    )
+                )
+            }
         }
 
-        eventDao.deleteEventById(eventId)
-
-        if (targetEventId != eventId) {
-            eventDao.deleteEventById(targetEventId)
-        }
+        eventDao.deleteAllEvents()
     }
 
     suspend fun clearLocalCalendarData() {
@@ -191,11 +267,13 @@ class EventRepository(
     }
 
     suspend fun getSavedAccounts(): List<String> {
-        return savedGoogleAccountDao?.getSavedAccounts()?.map { it.email } ?: emptyList()
+        return savedGoogleAccountDao?.getSavedAccounts()?.map { it.email }
+            ?: emptyList()
     }
 
     suspend fun getSwitchableAccounts(): List<String> {
-        return savedGoogleAccountDao?.getSwitchableAccounts()?.map { it.email } ?: emptyList()
+        return savedGoogleAccountDao?.getSwitchableAccounts()?.map { it.email }
+            ?: emptyList()
     }
 
     suspend fun saveLoggedInAccount(email: String) {
@@ -254,6 +332,148 @@ class EventRepository(
 
         return overrides.joinToString("\n") { reminder ->
             "${reminder.method}: ${reminder.minutes} minutes before"
+        }
+    }
+
+    private fun replaceRRuleEndWithUntil(
+        rule: String,
+        until: String
+    ): String {
+        val withoutUntil = rule
+            .replace(Regex(";UNTIL=[^;]+"), "")
+            .replace(Regex(";COUNT=[^;]+"), "")
+
+        return "$withoutUntil;UNTIL=$until"
+    }
+
+    private fun untilBeforeStart(start: String): String {
+        return try {
+            if (start.contains("T")) {
+                val parser = SimpleDateFormat(
+                    "yyyy-MM-dd'T'HH:mm:ssXXX",
+                    Locale.US
+                )
+
+                val utcFormatter = SimpleDateFormat(
+                    "yyyyMMdd'T'HHmmss'Z'",
+                    Locale.US
+                )
+
+                utcFormatter.timeZone = TimeZone.getTimeZone("UTC")
+
+                val date = parser.parse(start)!!
+
+                val millis = date.time - 1000L
+
+                utcFormatter.format(millis)
+            } else {
+                val parser = SimpleDateFormat(
+                    "yyyy-MM-dd",
+                    Locale.US
+                )
+
+                val formatter = SimpleDateFormat(
+                    "yyyyMMdd'T'000000'Z'",
+                    Locale.US
+                )
+
+                formatter.timeZone = TimeZone.getTimeZone("UTC")
+
+                val date = parser.parse(start)!!
+
+                val millis = date.time - 1000L
+
+                formatter.format(millis)
+            }
+        } catch (e: Exception) {
+            throw Exception("Failed to calculate UNTIL date.")
+        }
+    }
+
+    private fun parseEventStartMillis(start: String): Long {
+        return if (start.contains("T")) {
+            val parser = SimpleDateFormat(
+                "yyyy-MM-dd'T'HH:mm:ssXXX",
+                Locale.US
+            )
+
+            parser.parse(start)!!.time
+        } else {
+            val parser = SimpleDateFormat(
+                "yyyy-MM-dd",
+                Locale.US
+            )
+
+            parser.timeZone = TimeZone.getDefault()
+            parser.parse(start)!!.time
+        }
+    }
+
+    private fun trimRDateRuleBeforeMillis(
+        rule: String,
+        cutoffMillis: Long
+    ): String? {
+        val prefix = rule.substringBefore(":", missingDelimiterValue = "")
+        val dateList = rule.substringAfter(":", missingDelimiterValue = "")
+
+        if (prefix.isBlank() || dateList.isBlank()) {
+            return null
+        }
+
+        val timezoneId = Regex("""TZID=([^:;]+)""")
+            .find(prefix)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: TimeZone.getDefault().id
+
+        val timeZone = TimeZone.getTimeZone(timezoneId)
+
+        val effectiveCutoffMillis = cutoffMillis - 1_000L
+
+        val keptDates = dateList
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filter { rdate ->
+                val millis = parseRDateMillis(
+                    rdate = rdate,
+                    timeZone = timeZone
+                )
+
+                millis != null && millis < effectiveCutoffMillis
+            }
+
+        if (keptDates.isEmpty()) {
+            return null
+        }
+
+        return "$prefix:${keptDates.joinToString(",")}"
+    }
+
+    private fun parseRDateMillis(
+        rdate: String,
+        timeZone: TimeZone
+    ): Long? {
+        return try {
+            val parser = SimpleDateFormat(
+                "yyyyMMdd'T'HHmmss",
+                Locale.US
+            )
+
+            parser.timeZone = timeZone
+            parser.parse(rdate)?.time
+        } catch (e: Exception) {
+            try {
+                val parser = SimpleDateFormat(
+                    "yyyyMMdd",
+                    Locale.US
+                )
+
+                parser.timeZone = timeZone
+                parser.parse(rdate)?.time
+            } catch (e: Exception) {
+                null
+            }
         }
     }
 }

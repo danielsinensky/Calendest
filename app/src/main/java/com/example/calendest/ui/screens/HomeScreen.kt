@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -49,6 +50,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.example.calendest.DeleteEventMode
 import com.example.calendest.EventViewModel
 import com.example.calendest.data.local.entity.EventEntity
 import com.example.calendest.data.model.UiState
@@ -73,6 +75,7 @@ fun HomeScreen(
 
     var snagMenuExpanded by remember { mutableStateOf(false) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
+    var eventPendingDelete by remember { mutableStateOf<EventEntity?>(null) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
@@ -323,10 +326,15 @@ fun HomeScreen(
                                                             modifier = Modifier.clickable {
                                                                 focusManager.clearFocus()
                                                                 keyboardController?.hide()
-                                                                eventViewModel.deleteCalendarEvent(
-                                                                    eventId = event.id,
-                                                                    recurringEventId = event.recurringEventId
-                                                                )
+
+                                                                if (eventHasRecurrence(event)) {
+                                                                    eventPendingDelete = event
+                                                                } else {
+                                                                    eventViewModel.deleteCalendarEvent(
+                                                                        eventId = event.id,
+                                                                        eventStart = event.start
+                                                                    )
+                                                                }
                                                             }
                                                         )
                                                     }
@@ -441,7 +449,80 @@ fun HomeScreen(
                 )
             }
         }
+
+        eventPendingDelete?.let { event ->
+            RecurringDeleteDialog(
+                onDeleteOnlyThis = {
+                    eventPendingDelete = null
+                    eventViewModel.deleteCalendarEvent(
+                        eventId = event.id,
+                        recurringEventId = event.recurringEventId,
+                        eventStart = event.start,
+                        deleteMode = DeleteEventMode.ONLY_THIS_EVENT
+                    )
+                },
+                onDeleteThisAndFuture = {
+                    eventPendingDelete = null
+                    eventViewModel.deleteCalendarEvent(
+                        eventId = event.id,
+                        recurringEventId = event.recurringEventId,
+                        eventStart = event.start,
+                        deleteMode = DeleteEventMode.THIS_AND_FUTURE_EVENTS
+                    )
+                },
+                onDeleteAll = {
+                    eventPendingDelete = null
+                    eventViewModel.deleteCalendarEvent(
+                        eventId = event.id,
+                        recurringEventId = event.recurringEventId,
+                        eventStart = event.start,
+                        deleteMode = DeleteEventMode.ALL_EVENTS
+                    )
+                },
+                onDismiss = {
+                    eventPendingDelete = null
+                }
+            )
+        }
     }
+}
+
+@Composable
+private fun RecurringDeleteDialog(
+    onDeleteOnlyThis: () -> Unit,
+    onDeleteThisAndFuture: () -> Unit,
+    onDeleteAll: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Delete recurring event")
+        },
+        text = {
+            Text("What do you want to delete?")
+        },
+        confirmButton = {
+            Column {
+                Button(onClick = onDeleteOnlyThis) {
+                    Text("Only this event")
+                }
+
+                Button(onClick = onDeleteThisAndFuture) {
+                    Text("This and future events")
+                }
+
+                Button(onClick = onDeleteAll) {
+                    Text("All occurrences")
+                }
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 private fun homeEventDateTimeLabel(event: EventEntity): String {
@@ -574,4 +655,10 @@ private fun subtractOneDay(value: String): String {
     } catch (e: Exception) {
         value
     }
+}
+
+private fun eventHasRecurrence(event: EventEntity): Boolean {
+    return !event.recurringEventId.isNullOrBlank() ||
+            event.recurrence?.contains("FREQ=") == true ||
+            event.recurrence == "Part of a recurring series"
 }
